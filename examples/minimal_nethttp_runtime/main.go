@@ -27,9 +27,16 @@ type demoEntry struct {
 }
 
 var (
-	runtime   = runtimekit.NewRuntimeContext()
-	registry  = runtimekit.NewRuntimeRegistry[demoEntry, map[string]any, map[string]any](100)
-	telemetry = runtimekit.NewTelemetryClient(runtime.ProcessState, "", 0)
+	starter   = runtimekit.NewRuntimeStarter[demoEntry, map[string]any, map[string]any](
+		"minimal-nethttp-runtime",
+		"Minimal net/http Runtime",
+		"0.1.0",
+		"",
+		100,
+	)
+	runtime   = starter.Runtime
+	registry  = starter.Registry
+	telemetry = starter.Telemetry
 )
 
 func main() {
@@ -48,32 +55,11 @@ func main() {
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, runtimekit.BuildRuntimeHealthResponse(
-		runtime,
-		map[string]any{
-			"id":      "minimal-nethttp-runtime",
-			"name":    "Minimal net/http Runtime",
-			"version": "0.1.0",
-		},
-		map[string]any{
-			"active_configs": len(registry.IDs()),
-		},
-	))
+	writeJSON(w, http.StatusOK, starter.HealthResponse(nil))
 }
 
 func handleDiagnostics(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, runtimekit.BuildRuntimeDiagnosticsResponse(
-		runtime,
-		map[string]any{
-			"id":      "minimal-nethttp-runtime",
-			"name":    "Minimal net/http Runtime",
-			"version": "0.1.0",
-		},
-		map[string]any{
-			"active_config_ids":  registry.IDs(),
-			"recent_event_count": len(registry.RecentEvents()),
-		},
-	))
+	writeJSON(w, http.StatusOK, starter.DiagnosticsResponse(nil))
 }
 
 func handleDiscover(w http.ResponseWriter, r *http.Request) {
