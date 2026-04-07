@@ -7,6 +7,32 @@ plumbing without hiding the HTTP contract behind a large framework. The goal
 is to give Go developers a clear baseline for building runtimes while keeping
 vendor logic in the integration.
 
+> New to PiPhi? Start with [The Golden Path](#the-golden-path), then read [The IDs You Need To Understand](#the-ids-you-need-to-understand), then compare your code to the example app.
+
+## Quick Navigation
+
+- [Who this is for](#who-this-is-for)
+- [Install](#install)
+- [The Golden Path](#the-golden-path)
+- [UI Config Endpoints](#ui-config-endpoints)
+- [The IDs You Need To Understand](#the-ids-you-need-to-understand)
+- [Plain-Language Concepts](#plain-language-concepts)
+- [Typical Runtime Flow](#typical-runtime-flow)
+- [Adapters](#adapters)
+- [Clear Error Handling](#clear-error-handling)
+- [Common Mistakes](#common-mistakes)
+- [Troubleshooting](#troubleshooting)
+- [Package shape](#package-shape)
+
+## Reading Paths
+
+- New developer
+  Read `The Golden Path`, `The IDs You Need To Understand`, and `Plain-Language Concepts`.
+- Go developer integrating quickly
+  Read `The Golden Path`, `Adapters`, and the example app.
+- Debugging a runtime
+  Jump to `Clear Error Handling`, `Common Mistakes`, and `Troubleshooting`.
+
 ## Who this is for
 
 This SDK is for developers building PiPhi integrations in Go.
@@ -180,10 +206,73 @@ Some integrations also expose `/ui` or `/ui-config`.
 
 ### 7. Compare against the example app
 
-The reference example is:
+The reference examples are:
 
 - [`examples/minimal_nethttp_runtime/main.go`](./examples/minimal_nethttp_runtime/main.go)
 - [`examples/minimal_nethttp_runtime/README.md`](./examples/minimal_nethttp_runtime/README.md)
+- [`examples/minimal_gin_runtime/main.go`](./examples/minimal_gin_runtime/main.go)
+- [`examples/minimal_gin_runtime/README.md`](./examples/minimal_gin_runtime/README.md)
+
+## UI Config Endpoints
+
+Many integrations expose `/ui` or `/ui-config` so the PiPhi frontend knows how
+to render a configuration form.
+
+The important thing to know is:
+
+- this is still just plain JSON
+- the runtime SDK does not require a special wrapper for it
+- your integration can return schema data directly
+
+The usual pattern is to return:
+
+- a JSON Schema object under `schema`
+- a UI customization object under `uiSchema`
+
+Simple example:
+
+```go
+func handleUIConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"schema": map[string]any{
+			"title":    "Demo Device Setup",
+			"type":     "object",
+			"required": []string{"host"},
+			"properties": map[string]any{
+				"host": map[string]any{
+					"type":  "string",
+					"title": "Host",
+				},
+				"alias": map[string]any{
+					"type":  "string",
+					"title": "Alias",
+				},
+			},
+		},
+		"uiSchema": map[string]any{
+			"host": map[string]any{
+				"placeholder": "192.168.1.50",
+			},
+			"alias": map[string]any{
+				"placeholder": "Office Sensor",
+			},
+		},
+	})
+}
+```
+
+If your frontend uses `svelte-jsonschema-form`, the official docs are here:
+
+- https://x0k.dev/svelte-jsonschema-form/
+
+That library is a good fit when your frontend is already rendering JSON Schema
+forms and you want integrations to stay simple by returning plain schema data.
+
+For now, the recommended SDK approach is:
+
+- document `/ui-config`
+- return plain JSON schema/uiSchema objects
+- keep frontend-specific form helpers outside the runtime SDK
 
 ## The IDs You Need To Understand
 
@@ -204,6 +293,54 @@ The most common mistake is confusing `ID` with `ConfigID`.
 
 If you are sending events back to Core, `ConfigID`, `ContainerID`, and
 `IntegrationID` need to be correct.
+
+## Plain-Language Concepts
+
+If you are new to the platform, these ideas are simpler than they sound.
+
+- `snapshot`
+  A snapshot is PiPhi saying, "Here is the full list of configs you should be
+  running right now." Your runtime updates itself to match that list.
+  Example:
+  `response, err := coordinator.ApplySnapshot(payload, registry.IDs(), applyConfig, removeConfig, registry.IDs)`
+- `config sync`
+  Config sync means comparing the runtime's current configs to the snapshot,
+  then adding what is missing and removing what no longer belongs.
+  Example:
+  `activeConfigIDs := registry.IDs()`
+- `registry`
+  The registry is the runtime's in-memory notebook. It keeps track of active
+  entries, state, and recent events.
+  Example:
+  `registry.Set(payload.ID, DemoEntry{DeviceID: payload.DeviceID, ConfigID: payload.ConfigID, Host: payload.Host})`
+- `telemetry`
+  Telemetry is a stream of measurements, like temperature, humidity, battery,
+  power, or signal strength.
+  Example:
+  `runtimekit.ScheduleTelemetryDelivery(runtime.ProcessState, telemetry, runtime.Auth, runtimekit.TelemetryPayload{DeviceID: "sensor-1", Metrics: map[string]any{"temperature_c": 21.4}, Units: map[string]any{"temperature_c": "C"}})`
+- `event`
+  An event is a meaningful thing that happened, like "device configured" or
+  "reading failed."
+  Example:
+  `registry.AppendEvent(runtimekit.BuildLocalEventRecord(map[string]any{"event_type": "device.configured", "device_id": "sensor-1", "config_id": "core-config-uuid", "source": "demo-runtime", "severity": "info"}))`
+- `ContainerID`
+  This is the identity of the running runtime from Core's point of view.
+  Example:
+  `adapters.SyncRuntimeAuthFromRequest(runtime, r, payload.ContainerID)`
+- `ConfigID`
+  This is the real Core-side id for a config. If Core expects the official
+  config identity, this is the one to use.
+  Example:
+  `entry := DemoEntry{ConfigID: firstNonEmpty(payload.ConfigID, payload.ID), DeviceID: firstNonEmpty(payload.DeviceID, payload.ID)}`
+- `DeviceID`
+  This is the actual device or logical thing you are talking to.
+  Example:
+  `err := telemetry.SendMetrics(ctx, runtimekit.SendMetricsInput{AuthContext: runtime.Auth, DeviceID: "sensor-1", Metrics: map[string]any{"connected": true}})`
+- `starter`
+  The starter is the beginner-friendly bundle that gives you the common SDK
+  pieces in one place.
+  Example:
+  `starter := runtimekit.NewRuntimeStarter[DemoEntry, map[string]any, map[string]any]("demo-runtime", "Demo Runtime", "0.1.0", "", 100)`
 
 ## Typical Runtime Flow
 
@@ -313,6 +450,9 @@ If config sync behaves incorrectly:
   telemetry.go
   types.go
   examples/
+    minimal_gin_runtime/
+      main.go
+      README.md
     minimal_nethttp_runtime/
       main.go
       README.md

@@ -1,14 +1,16 @@
-# Minimal net/http Runtime Example
+# Minimal Gin Runtime Example
 
-This example is meant to teach in two layers:
+This example shows the Go SDK's thin Gin adapter path.
 
-- a beginner path for a first successful PiPhi runtime
+It is meant to teach in two layers:
+
+- a beginner path for a first successful PiPhi runtime in Gin
 - an advanced path for targeted per-device event and telemetry flows
 
 ## What it demonstrates
 
 - starting from `NewRuntimeStarter(...)`
-- syncing request auth with `adapters.SyncRuntimeAuthFromRequest(...)`
+- syncing request auth with `adapters.SyncRuntimeAuthFromGinContext(...)`
 - using `RuntimeRegistry` for active runtime state
 - standard config apply and remove responses
 - standard health and diagnostics responses
@@ -32,9 +34,9 @@ Start with these routes first:
 
 These routes are closer to a real integration:
 
-- `POST /deconfigure`
-- `POST /events/device?config_id=...`
-- `POST /telemetry/device?config_id=...`
+- `POST /deconfigure/:configId`
+- `POST /events/device/:configId/example`
+- `POST /telemetry/device/:configId/example`
 
 They show how to:
 
@@ -46,10 +48,7 @@ They show how to:
 ## Suggested reading order
 
 1. read the starter creation
-2. read the `demoEntry` struct
-3. read `handleConfig`
+2. read `handleConfig`
+3. read the Gin auth adapter usage
 4. read `handleTelemetryExample`
 5. read the device-targeted routes
-
-This example is intentionally illustrative and small. It is meant to show the
-SDK shape clearly, not to be a production-ready integration by itself.

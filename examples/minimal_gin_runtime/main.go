@@ -1,10 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	runtimekit "github.com/piphi-network/piphi-runtime-kit-go"
 	"github.com/piphi-network/piphi-runtime-kit-go/adapters"
 )
@@ -28,8 +28,8 @@ type demoEntry struct {
 
 var (
 	starter = runtimekit.NewRuntimeStarter[demoEntry, map[string]any, map[string]any](
-		"minimal-nethttp-runtime",
-		"Minimal net/http Runtime",
+		"minimal-gin-runtime",
+		"Minimal Gin Runtime",
 		"0.1.0",
 		"",
 		100,
@@ -40,46 +40,45 @@ var (
 )
 
 func main() {
-	http.HandleFunc("/health", handleHealth)
-	http.HandleFunc("/diagnostics", handleDiagnostics)
-	http.HandleFunc("/discover", handleDiscover)
-	http.HandleFunc("/config", handleConfig)
-	http.HandleFunc("/deconfigure", handleDeconfigure)
-	http.HandleFunc("/state", handleState)
-	http.HandleFunc("/events/example", handleEventExample)
-	http.HandleFunc("/events/device", handleEventForDevice)
-	http.HandleFunc("/events", handleEvents)
-	http.HandleFunc("/telemetry/example", handleTelemetryExample)
-	http.HandleFunc("/telemetry/device", handleTelemetryForDevice)
+	router := gin.Default()
 
-	log.Println("minimal net/http runtime listening on :8095")
-	log.Fatal(http.ListenAndServe(":8095", nil))
+	router.GET("/health", handleHealth)
+	router.GET("/diagnostics", handleDiagnostics)
+	router.POST("/discover", handleDiscover)
+	router.POST("/config", handleConfig)
+	router.POST("/deconfigure/:configId", handleDeconfigure)
+	router.GET("/state", handleState)
+	router.POST("/events/example", handleEventExample)
+	router.POST("/events/device/:configId/example", handleEventForDevice)
+	router.GET("/events", handleEvents)
+	router.POST("/telemetry/example", handleTelemetryExample)
+	router.POST("/telemetry/device/:configId/example", handleTelemetryForDevice)
+
+	log.Println("minimal gin runtime listening on :8096")
+	log.Fatal(router.Run(":8096"))
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, starter.HealthResponse(nil))
+func handleHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, starter.HealthResponse(map[string]any{
+		"active_configs": len(registry.IDs()),
+	}))
 }
 
-func handleDiagnostics(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, starter.DiagnosticsResponse(map[string]any{
+func handleDiagnostics(c *gin.Context) {
+	c.JSON(http.StatusOK, starter.DiagnosticsResponse(map[string]any{
 		"active_config_ids":  registry.IDs(),
 		"recent_event_count": len(registry.RecentEvents()),
 		"teaching_mode":      "beginner-and-advanced",
 	}))
 }
 
-func handleDiscover(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
+func handleDiscover(c *gin.Context) {
 	var payload runtimekit.IntegrationDiscoveryRequest
-	_ = json.NewDecoder(r.Body).Decode(&payload)
+	_ = c.ShouldBindJSON(&payload)
 	inputs := runtimekit.NormalizeDiscoveryInputs(payload.Inputs)
 	log.Println(runtimekit.FormatDiscoveryAttemptLog(inputs))
 
-	writeJSON(w, http.StatusOK, runtimekit.BuildDiscoveryResponse([]map[string]any{
+	c.JSON(http.StatusOK, runtimekit.BuildDiscoveryResponse([]map[string]any{
 		{
 			"id":                        "demo-device",
 			"device_id":                 "demo-device",
@@ -90,35 +89,28 @@ func handleDiscover(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-func handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
+func handleConfig(c *gin.Context) {
 	var payload demoConfig
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	parsed := adapters.SyncRuntimeAuthFromRequest(runtime, r, payload.ContainerID)
+	parsed := adapters.SyncRuntimeAuthFromGinContext(runtime, c, payload.ContainerID)
 	log.Println(runtimekit.FormatRuntimeAuthSyncLog(parsed, payload.ContainerID))
-
-	logPayload := map[string]any{
+	log.Println(runtimekit.FormatConfigApplyLog(map[string]any{
 		"id":             payload.ID,
 		"container_id":   payload.ContainerID,
 		"integration_id": payload.IntegrationID,
 		"host":           payload.Host,
 		"alias":          payload.Alias,
-	}
-	log.Println(runtimekit.FormatConfigApplyLog(logPayload))
+	}))
 
 	entry := demoEntry{
 		ConfigID:      firstNonEmpty(payload.ConfigID, payload.ID),
 		DeviceID:      firstNonEmpty(payload.DeviceID, payload.ID),
 		ContainerID:   payload.ContainerID,
-		IntegrationID: firstNonEmpty(payload.IntegrationID, "minimal-nethttp-runtime"),
+		IntegrationID: firstNonEmpty(payload.IntegrationID, "minimal-gin-runtime"),
 		Host:          payload.Host,
 		Alias:         payload.Alias,
 		Config:        payload,
@@ -127,6 +119,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			"host":      payload.Host,
 		},
 	}
+
 	registry.Set(payload.ID, entry)
 	registry.UpdateState(payload.ID, entry.LatestState)
 	appendRuntimeEvent("demo.config.applied", entry, map[string]any{
@@ -134,7 +127,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		"alias": payload.Alias,
 	})
 
-	writeJSON(w, http.StatusOK, runtimekit.BuildConfigApplyResponse(
+	c.JSON(http.StatusOK, runtimekit.BuildConfigApplyResponse(
 		entry.ConfigID,
 		payload.ContainerID,
 		map[string]any{
@@ -144,34 +137,23 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	))
 }
 
-func handleDeconfigure(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		ConfigID string `json:"config_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	entry, removed := registry.Remove(payload.ConfigID)
+func handleDeconfigure(c *gin.Context) {
+	configID := c.Param("configId")
+	entry, removed := registry.Remove(configID)
 	if removed {
 		appendRuntimeEvent("demo.config.removed", entry, map[string]any{
 			"host":  entry.Host,
 			"alias": entry.Alias,
 		})
 	}
-	writeJSON(w, http.StatusOK, runtimekit.BuildConfigRemoveResponse(payload.ConfigID, removed, map[string]any{
+
+	c.JSON(http.StatusOK, runtimekit.BuildConfigRemoveResponse(configID, removed, map[string]any{
 		"remaining_configs": registry.IDs(),
 	}))
 }
 
-func handleState(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func handleState(c *gin.Context) {
+	c.JSON(http.StatusOK, map[string]any{
 		"summary": map[string]any{
 			"active_config_count": len(registry.IDs()),
 			"recent_event_count":  len(registry.RecentEvents()),
@@ -181,12 +163,12 @@ func handleState(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func handleEventExample(w http.ResponseWriter, _ *http.Request) {
+func handleEventExample(c *gin.Context) {
 	entry, ok := registry.PrimaryEntry()
 	deviceID := "demo-device"
 	configID := "demo-device"
 	containerID := runtime.Auth.ContainerID()
-	integrationID := "minimal-nethttp-runtime"
+	integrationID := "minimal-gin-runtime"
 	if ok {
 		deviceID = entry.DeviceID
 		configID = entry.ConfigID
@@ -202,19 +184,14 @@ func handleEventExample(w http.ResponseWriter, _ *http.Request) {
 	}, map[string]any{
 		"message": "Example local runtime event",
 	})
-	writeJSON(w, http.StatusOK, runtimekit.BuildEventIngestResponse(event))
+	c.JSON(http.StatusOK, runtimekit.BuildEventIngestResponse(event))
 }
 
-func handleEventForDevice(w http.ResponseWriter, r *http.Request) {
-	configID := r.URL.Query().Get("config_id")
-	if configID == "" {
-		http.Error(w, "missing config_id query parameter", http.StatusBadRequest)
-		return
-	}
-
+func handleEventForDevice(c *gin.Context) {
+	configID := c.Param("configId")
 	entry, ok := registry.Get(configID)
 	if !ok {
-		http.Error(w, "unknown config_id", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"ok": false, "reason": "unknown config_id"})
 		return
 	}
 
@@ -222,27 +199,19 @@ func handleEventForDevice(w http.ResponseWriter, r *http.Request) {
 		"message": "Advanced example event for a specific configured device",
 		"host":    entry.Host,
 	})
-	writeJSON(w, http.StatusOK, runtimekit.BuildEventIngestResponse(event))
+	c.JSON(http.StatusOK, runtimekit.BuildEventIngestResponse(event))
 }
 
-func handleEvents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, runtimekit.BuildEventListResponse(registry.RecentEvents()))
+func handleEvents(c *gin.Context) {
+	c.JSON(http.StatusOK, runtimekit.BuildEventListResponse(registry.RecentEvents()))
 }
 
-func handleTelemetryExample(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	adapters.SyncRuntimeAuthFromRequest(runtime, r, "")
+func handleTelemetryExample(c *gin.Context) {
+	adapters.SyncRuntimeAuthFromGinContext(runtime, c, "")
 
 	entry, ok := registry.PrimaryEntry()
 	if !ok {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"ok":     false,
-			"reason": "no configured devices",
-		})
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "reason": "no configured devices"})
 		return
 	}
 
@@ -263,28 +232,16 @@ func handleTelemetryExample(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"status": "queued",
-	})
+	c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
 }
 
-func handleTelemetryForDevice(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
+func handleTelemetryForDevice(c *gin.Context) {
+	adapters.SyncRuntimeAuthFromGinContext(runtime, c, "")
 
-	adapters.SyncRuntimeAuthFromRequest(runtime, r, "")
-
-	configID := r.URL.Query().Get("config_id")
-	if configID == "" {
-		http.Error(w, "missing config_id query parameter", http.StatusBadRequest)
-		return
-	}
-
+	configID := c.Param("configId")
 	entry, ok := registry.Get(configID)
 	if !ok {
-		http.Error(w, "unknown config_id", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"ok": false, "reason": "unknown config_id"})
 		return
 	}
 
@@ -307,26 +264,18 @@ func handleTelemetryForDevice(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"status": "queued",
-	})
-}
-
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
+	c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
 }
 
 func appendRuntimeEvent(eventType string, entry demoEntry, payload map[string]any) map[string]any {
 	return registry.AppendEvent(runtimekit.BuildLocalEventRecord(map[string]any{
 		"event_type":     eventType,
-		"source":         "minimal-nethttp-runtime",
+		"source":         "minimal-gin-runtime",
 		"severity":       "info",
 		"device_id":      entry.DeviceID,
 		"config_id":      entry.ConfigID,
 		"container_id":   entry.ContainerID,
-		"integration_id": firstNonEmpty(entry.IntegrationID, "minimal-nethttp-runtime"),
+		"integration_id": firstNonEmpty(entry.IntegrationID, "minimal-gin-runtime"),
 		"payload":        payload,
 	}))
 }
