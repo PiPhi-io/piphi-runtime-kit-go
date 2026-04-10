@@ -9,6 +9,8 @@ vendor logic in the integration.
 
 > New to PiPhi? Start with [The Golden Path](#the-golden-path), then read [The IDs You Need To Understand](#the-ids-you-need-to-understand), then compare your code to the example app.
 
+> Safety note: every UUID, token, host, and container identifier in this README is placeholder example data. Do not copy real runtime secrets or production identifiers into public examples, test files, or docs.
+
 ## Quick Navigation
 
 - [Who this is for](#who-this-is-for)
