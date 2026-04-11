@@ -42,6 +42,21 @@ func NewRuntimeStarter[TEntry any, TState any, TEvent any](
 	}
 }
 
+// BuildEntitiesResponse wraps runtime entities in the standard /entities response shape.
+func BuildEntitiesResponse[T any](entities []T, capabilities map[string]any, commands map[string]any) RuntimeEntitiesResponse[T] {
+	if capabilities == nil {
+		capabilities = map[string]any{}
+	}
+	if commands == nil {
+		commands = map[string]any{}
+	}
+	return RuntimeEntitiesResponse[T]{
+		Entities:     entities,
+		Capabilities: capabilities,
+		Commands:     commands,
+	}
+}
+
 // IntegrationMetadata returns the standard metadata map used in responses.
 func (s *RuntimeStarter[TEntry, TState, TEvent]) IntegrationMetadata() map[string]any {
 	return map[string]any{

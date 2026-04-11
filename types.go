@@ -52,6 +52,35 @@ type IntegrationDiscoveryResponse[TDevice any] struct {
 	Devices []TDevice `json:"devices"`
 }
 
+// RuntimeEntityDashboard describes optional dashboard hints for one runtime entity.
+type RuntimeEntityDashboard struct {
+	AllowedWidgets     []string       `json:"allowed_widgets,omitempty"`
+	DefaultWidget      string         `json:"default_widget,omitempty"`
+	RecommendedWidgets []string       `json:"recommended_widgets,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+}
+
+// RuntimeEntity is the richer runtime /entities shape for one configured device.
+type RuntimeEntity struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Capabilities []string              `json:"capabilities"`
+	ConfigID    string                 `json:"config_id,omitempty"`
+	DeviceID    string                 `json:"device_id,omitempty"`
+	DeviceType  string                 `json:"device_type,omitempty"`
+	DeviceClass string                 `json:"device_class,omitempty"`
+	EntityType  string                 `json:"entity_type,omitempty"`
+	Dashboard   *RuntimeEntityDashboard `json:"dashboard,omitempty"`
+	Metadata    map[string]any         `json:"metadata,omitempty"`
+}
+
+// RuntimeEntitiesResponse is the standard response wrapper for /entities.
+type RuntimeEntitiesResponse[T any] struct {
+	Entities     []T            `json:"entities"`
+	Capabilities map[string]any `json:"capabilities,omitempty"`
+	Commands     map[string]any `json:"commands,omitempty"`
+}
+
 // IntegrationEventRequest is the local runtime event shape.
 type IntegrationEventRequest struct {
 	EventType     string         `json:"event_type"`

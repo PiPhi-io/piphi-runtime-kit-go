@@ -206,6 +206,54 @@ Most runtimes should provide at least:
 
 Some integrations also expose `/ui` or `/ui-config`.
 
+### 6.1 Model `/entities` with real device context
+
+For smart-home integrations, `/entities` should describe the real configured devices rather than one generic manifest entity. That helps PiPhi suggest the right dashboard card for a plug vs a bulb vs a thermostat.
+
+For simpler integrations, a small generic entity list is still acceptable. The
+richer runtime-owned shape matters most when PiPhi needs to distinguish device
+types and recommend the right UI treatment automatically.
+
+Recommended fields:
+
+- `id`: stable runtime entity id
+- `name`: user-facing label
+- `capabilities`: actual capabilities for that device
+- `config_id`: PiPhi config UUID when available
+- `device_id`: integration-native device id
+- `device_type` / `device_class`: values like `plug`, `bulb`, `sensor`, `climate`
+- `entity_type`: values like `switch`, `light`, `sensor`, `media`
+- `dashboard.allowed_widgets`, `dashboard.default_widget`, `dashboard.recommended_widgets`: optional UI hints
+
+The Go kit now exports `RuntimeEntity`, `RuntimeEntitiesResponse`, and
+`BuildEntitiesResponse(...)` so runtimes can return that shape consistently.
+
+The helper returns the standard wrapper shape:
+
+- `entities`: the runtime-owned list you generated
+- `capabilities`: optional manifest capability metadata
+- `commands`: optional manifest command metadata
+
+```go
+func handleEntities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, runtimekit.BuildEntitiesResponse([]runtimekit.RuntimeEntity{
+		{
+			ID:           "office-plug",
+			Name:         "Office Plug",
+			ConfigID:     "core-config-uuid",
+			DeviceID:     "office-plug",
+			DeviceClass:  "plug",
+			EntityType:   "switch",
+			Capabilities: []string{"switch", "power", "energy_today"},
+			Dashboard: &runtimekit.RuntimeEntityDashboard{
+				AllowedWidgets: []string{"tile", "button", "stat"},
+				DefaultWidget:  "tile",
+			},
+		},
+	}, manifestCapabilities, manifestCommands))
+}
+```
+
 ### 7. Compare against the example app
 
 The reference examples are:
