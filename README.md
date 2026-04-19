@@ -225,6 +225,9 @@ Recommended fields:
 - `entity_type`: values like `switch`, `light`, `sensor`, `media`
 - `dashboard.allowed_widgets`, `dashboard.default_widget`, `dashboard.recommended_widgets`: optional UI hints
 
+Use `BuildRuntimeIdentity(...)` when you store config-backed entries so
+`ConfigID` stays the Core UUID while `DeviceID` stays the integration-owned id.
+
 The Go kit now exports `RuntimeEntity`, `RuntimeEntitiesResponse`, and
 `BuildEntitiesResponse(...)` so runtimes can return that shape consistently.
 

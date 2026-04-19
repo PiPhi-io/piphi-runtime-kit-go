@@ -85,11 +85,15 @@ func (r *RuntimeRegistry[TEntry, TState, TEvent]) PrimaryEntry() (TEntry, bool) 
 }
 
 // UpdateState stores the latest known state snapshot for one entry id.
-func (r *RuntimeRegistry[TEntry, TState, TEvent]) UpdateState(entryID string, state TState) StateSnapshot[TState] {
+func (r *RuntimeRegistry[TEntry, TState, TEvent]) UpdateState(entryID string, state TState, deviceID ...string) StateSnapshot[TState] {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	resolvedDeviceID := entryID
+	if len(deviceID) > 0 && deviceID[0] != "" {
+		resolvedDeviceID = deviceID[0]
+	}
 	snapshot := StateSnapshot[TState]{
-		DeviceID:    entryID,
+		DeviceID:    resolvedDeviceID,
 		State:       state,
 		LastUpdated: time.Now().UTC().Format(time.RFC3339),
 	}

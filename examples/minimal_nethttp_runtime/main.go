@@ -113,12 +113,13 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		"alias":          payload.Alias,
 	}
 	log.Println(runtimekit.FormatConfigApplyLog(logPayload))
+	identity := runtimekit.BuildRuntimeIdentity(payload.RuntimeConfig, "minimal-nethttp-runtime")
 
 	entry := demoEntry{
-		ConfigID:      firstNonEmpty(payload.ConfigID, payload.ID),
-		DeviceID:      firstNonEmpty(payload.DeviceID, payload.ID),
-		ContainerID:   payload.ContainerID,
-		IntegrationID: firstNonEmpty(payload.IntegrationID, "minimal-nethttp-runtime"),
+		ConfigID:      identity.ConfigID,
+		DeviceID:      identity.DeviceID,
+		ContainerID:   identity.ContainerID,
+		IntegrationID: identity.IntegrationID,
 		Host:          payload.Host,
 		Alias:         payload.Alias,
 		Config:        payload,
@@ -128,7 +129,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	registry.Set(payload.ID, entry)
-	registry.UpdateState(payload.ID, entry.LatestState)
+	registry.UpdateState(payload.ID, entry.LatestState, entry.DeviceID)
 	appendRuntimeEvent("demo.config.applied", entry, map[string]any{
 		"host":  payload.Host,
 		"alias": payload.Alias,
