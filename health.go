@@ -10,6 +10,7 @@ func BuildRuntimeHealthResponse(runtime *RuntimeContext, integration map[string]
 		CoreClientBound:    runtime.ProcessState.CoreHTTPClient() != nil,
 		PendingTaskCount:   runtime.ProcessState.PendingTaskCount(),
 		CurrentGeneration:  runtime.ProcessState.CurrentGeneration(),
+		ConfigGeneration:   runtime.ProcessState.CurrentGeneration(),
 		Metadata:           metadata,
 	}
 }
@@ -24,6 +25,7 @@ func BuildRuntimeDiagnosticsResponse(runtime *RuntimeContext, integration map[st
 		CoreClientBound:    runtime.ProcessState.CoreHTTPClient() != nil,
 		PendingTaskCount:   runtime.ProcessState.PendingTaskCount(),
 		CurrentGeneration:  runtime.ProcessState.CurrentGeneration(),
+		ConfigGeneration:   runtime.ProcessState.CurrentGeneration(),
 		Diagnostics:        diagnostics,
 	}
 }

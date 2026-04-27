@@ -27,10 +27,17 @@ type RuntimeConfigRemoveResponse struct {
 
 // RuntimeConfigSnapshot is the runtime-facing config snapshot shape.
 type RuntimeConfigSnapshot[TConfig any] struct {
-	ContainerID   string    `json:"container_id,omitempty"`
-	IntegrationID string    `json:"integration_id,omitempty"`
-	Generation    *int      `json:"generation,omitempty"`
-	Configs       []TConfig `json:"configs"`
+	SchemaVersion    int       `json:"schema_version,omitempty"`
+	ContainerID      string    `json:"container_id,omitempty"`
+	IntegrationID    string    `json:"integration_id,omitempty"`
+	DriverPID        int       `json:"driver_pid,omitempty"`
+	Reason           string    `json:"reason,omitempty"`
+	Generation       *int      `json:"generation,omitempty"`
+	UpdatedAt        string    `json:"updated_at,omitempty"`
+	Configs          []TConfig `json:"configs"`
+	DeletedConfigIDs []string  `json:"deleted_config_ids,omitempty"`
+	ConfigHash       string    `json:"config_hash,omitempty"`
+	InternalToken    string    `json:"internal_token,omitempty"`
 }
 
 // RuntimeConfigSyncResponse is returned after a snapshot reconciliation pass.
@@ -62,16 +69,16 @@ type RuntimeEntityDashboard struct {
 
 // RuntimeEntity is the richer runtime /entities shape for one configured device.
 type RuntimeEntity struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Capabilities []string              `json:"capabilities"`
-	ConfigID    string                 `json:"config_id,omitempty"`
-	DeviceID    string                 `json:"device_id,omitempty"`
-	DeviceType  string                 `json:"device_type,omitempty"`
-	DeviceClass string                 `json:"device_class,omitempty"`
-	EntityType  string                 `json:"entity_type,omitempty"`
-	Dashboard   *RuntimeEntityDashboard `json:"dashboard,omitempty"`
-	Metadata    map[string]any         `json:"metadata,omitempty"`
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Capabilities []string                `json:"capabilities"`
+	ConfigID     string                  `json:"config_id,omitempty"`
+	DeviceID     string                  `json:"device_id,omitempty"`
+	DeviceType   string                  `json:"device_type,omitempty"`
+	DeviceClass  string                  `json:"device_class,omitempty"`
+	EntityType   string                  `json:"entity_type,omitempty"`
+	Dashboard    *RuntimeEntityDashboard `json:"dashboard,omitempty"`
+	Metadata     map[string]any          `json:"metadata,omitempty"`
 }
 
 // RuntimeEntitiesResponse is the standard response wrapper for /entities.
@@ -112,6 +119,7 @@ type RuntimeHealthResponse struct {
 	CoreClientBound    bool           `json:"core_client_bound"`
 	PendingTaskCount   int            `json:"pending_task_count"`
 	CurrentGeneration  *int           `json:"current_generation,omitempty"`
+	ConfigGeneration   *int           `json:"config_generation,omitempty"`
 	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
@@ -123,6 +131,7 @@ type RuntimeDiagnosticsResponse struct {
 	CoreClientBound    bool           `json:"core_client_bound"`
 	PendingTaskCount   int            `json:"pending_task_count"`
 	CurrentGeneration  *int           `json:"current_generation,omitempty"`
+	ConfigGeneration   *int           `json:"config_generation,omitempty"`
 	Diagnostics        map[string]any `json:"diagnostics,omitempty"`
 }
 
