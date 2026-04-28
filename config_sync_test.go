@@ -1,6 +1,10 @@
 package runtimekit
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,6 +95,161 @@ func TestLoadRuntimeConfigSnapshotReturnsNilForMissingOrInvalidSnapshot(t *testi
 	}
 	if invalid != nil {
 		t.Fatalf("expected nil invalid snapshot, got %#v", invalid)
+	}
+}
+
+func TestBuildRuntimeConfigSnapshotFromCoreRowsConvertsValidRows(t *testing.T) {
+	snapshot, err := BuildRuntimeConfigSnapshotFromCoreRows[RuntimeConfigWithID](
+		[]map[string]any{
+			{"config_data": map[string]any{"id": "device-1", "name": "Kitchen"}},
+			{"config_data": nil},
+			{"other": map[string]any{"id": "ignored"}},
+		},
+		"container-1",
+		nil,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snapshot.ContainerID != "container-1" || snapshot.Reason != "startup_rehydrate" {
+		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	}
+	if len(snapshot.Configs) != 1 || snapshot.Configs[0].ID != "device-1" {
+		t.Fatalf("unexpected configs: %#v", snapshot.Configs)
+	}
+	if snapshot.Configs[0].ContainerID != "container-1" {
+		t.Fatalf("container id was not injected: %#v", snapshot.Configs[0])
+	}
+}
+
+func TestFetchCoreRuntimeConfigSnapshotUsesRuntimeAuthHeaders(t *testing.T) {
+	runtimeContext := NewRuntimeContext()
+	runtimeContext.Auth.Update("container-1", "secret-token")
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != CoreRuntimeConfigFetchPath {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		if request.URL.Query().Get("container_id") != "container-1" {
+			t.Fatalf("missing container id query: %s", request.URL.RawQuery)
+		}
+		if request.Header.Get(RuntimeContainerIDHeaderName) != "container-1" {
+			t.Fatalf("missing container id header")
+		}
+		if request.Header.Get(RuntimeInternalTokenHeaderName) != "secret-token" {
+			t.Fatalf("missing internal token header")
+		}
+		_ = json.NewEncoder(response).Encode([]map[string]any{
+			{"config_data": map[string]any{"id": "device-1"}},
+		})
+	}))
+	defer server.Close()
+
+	snapshot, err := FetchCoreRuntimeConfigSnapshot[RuntimeConfigWithID](
+		context.Background(),
+		runtimeContext,
+		server.Client(),
+		server.URL,
+		nil,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected fetch error: %v", err)
+	}
+	if snapshot == nil || len(snapshot.Configs) != 1 || snapshot.Configs[0].ID != "device-1" {
+		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	}
+}
+
+func TestRehydrateRuntimeConfigsAppliesSnapshotThenCore(t *testing.T) {
+	runtimeContext := NewRuntimeContext()
+	runtimeContext.Auth.Update("container-1", "secret-token")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "container-1.json")
+	if err := os.WriteFile(path, []byte(`{
+		"container_id": "container-1",
+		"reason": "startup_snapshot",
+		"generation": 1,
+		"configs": [{"id": "snapshot-device"}]
+	}`), 0o600); err != nil {
+		t.Fatalf("failed to write snapshot: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(response).Encode([]map[string]any{
+			{"config_data": map[string]any{"id": "core-device"}},
+		})
+	}))
+	defer server.Close()
+
+	applied := [][]string{}
+	result, err := RehydrateRuntimeConfigs(
+		context.Background(),
+		RuntimeConfigRehydrateOptions[RuntimeConfigWithID]{
+			RuntimeContext: runtimeContext,
+			HTTPClient:     server.Client(),
+			CoreBaseURL:    server.URL,
+			SnapshotPath:   path,
+			ApplySnapshot: func(snapshot RuntimeConfigSnapshot[RuntimeConfigWithID]) error {
+				ids := []string{snapshot.Reason}
+				for _, config := range snapshot.Configs {
+					ids = append(ids, config.ID)
+				}
+				applied = append(applied, ids)
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unexpected rehydrate error: %v", err)
+	}
+	if !result.SnapshotApplied || !result.CoreApplied {
+		t.Fatalf("expected snapshot and core applied: %#v", result)
+	}
+	if len(applied) != 2 || applied[0][1] != "snapshot-device" || applied[1][1] != "core-device" {
+		t.Fatalf("unexpected apply order: %#v", applied)
+	}
+}
+
+func TestRehydrateRuntimeConfigsKeepsSnapshotWhenCoreIsOffline(t *testing.T) {
+	runtimeContext := NewRuntimeContext()
+	runtimeContext.Auth.Update("container-1", "secret-token")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "container-1.json")
+	if err := os.WriteFile(path, []byte(`{
+		"container_id": "container-1",
+		"configs": [{"id": "snapshot-device"}]
+	}`), 0o600); err != nil {
+		t.Fatalf("failed to write snapshot: %v", err)
+	}
+
+	applied := []string{}
+	result, err := RehydrateRuntimeConfigs(
+		context.Background(),
+		RuntimeConfigRehydrateOptions[RuntimeConfigWithID]{
+			RuntimeContext: runtimeContext,
+			HTTPClient:     &http.Client{},
+			CoreBaseURL:    "http://127.0.0.1:1",
+			SnapshotPath:   path,
+			ApplySnapshot: func(snapshot RuntimeConfigSnapshot[RuntimeConfigWithID]) error {
+				for _, config := range snapshot.Configs {
+					applied = append(applied, config.ID)
+				}
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unexpected rehydrate error: %v", err)
+	}
+	if !result.SnapshotApplied || !result.CoreAttempted || result.CoreApplied || result.CoreError == "" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if len(applied) != 1 || applied[0] != "snapshot-device" {
+		t.Fatalf("unexpected applied configs: %#v", applied)
 	}
 }
 

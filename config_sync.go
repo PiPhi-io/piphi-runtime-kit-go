@@ -1,7 +1,11 @@
 package runtimekit
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +22,36 @@ const (
 	DefaultRuntimeVolumeDir = "/.piphinetwork"
 	// DefaultRuntimeConfigSnapshotFilename is used when no container id is available.
 	DefaultRuntimeConfigSnapshotFilename = "configs.json"
+	// CoreRuntimeConfigFetchPath is Core's internal runtime config rehydrate route.
+	CoreRuntimeConfigFetchPath = "/api/v2/integrations/config/fetch/all/by/container/internal"
 )
+
+// RuntimeConfigRehydrateResult describes startup config rehydration behavior.
+type RuntimeConfigRehydrateResult struct {
+	SnapshotFound       bool
+	SnapshotApplied     bool
+	SnapshotConfigCount int
+	SnapshotGeneration  *int
+	CoreAttempted       bool
+	CoreApplied         bool
+	CoreConfigCount     int
+	CoreGeneration      *int
+	CoreError           string
+	MissingRuntimeAuth  bool
+}
+
+// RuntimeConfigRehydrateOptions configures SDK-owned startup config rehydration.
+type RuntimeConfigRehydrateOptions[TConfig any] struct {
+	RuntimeContext  *RuntimeContext
+	HTTPClient      *http.Client
+	CoreBaseURL     string
+	SnapshotPath    string
+	ApplySnapshot   func(RuntimeConfigSnapshot[TConfig]) error
+	DecodeConfig    func(map[string]any) (TConfig, error)
+	SnapshotReason  string
+	CoreReason      string
+	RaiseCoreErrors bool
+}
 
 // ResolveCoreBaseURL resolves Core's base URL from the managed-runtime environment.
 func ResolveCoreBaseURL(defaultValue string) string {
@@ -70,6 +103,222 @@ func LoadRuntimeConfigSnapshot[TConfig any](path string) (*RuntimeConfigSnapshot
 		return nil, nil
 	}
 	return &snapshot, nil
+}
+
+func decodeRuntimeConfigPayload[TConfig any](
+	payload map[string]any,
+	decodeConfig func(map[string]any) (TConfig, error),
+) (TConfig, error) {
+	if decodeConfig != nil {
+		return decodeConfig(payload)
+	}
+
+	var config TConfig
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return config, err
+	}
+	err = json.Unmarshal(raw, &config)
+	return config, err
+}
+
+func hasNonEmptyString(payload map[string]any, key string) bool {
+	value, ok := payload[key]
+	if !ok {
+		return false
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) != ""
+}
+
+// BuildRuntimeConfigSnapshotFromCoreRows converts Core internal config rows into a runtime snapshot.
+func BuildRuntimeConfigSnapshotFromCoreRows[TConfig any](
+	rows []map[string]any,
+	containerID string,
+	decodeConfig func(map[string]any) (TConfig, error),
+	reason string,
+) (RuntimeConfigSnapshot[TConfig], error) {
+	configs := []TConfig{}
+	if strings.TrimSpace(reason) == "" {
+		reason = "startup_rehydrate"
+	}
+
+	for _, row := range rows {
+		value, ok := row["config_data"]
+		if !ok {
+			continue
+		}
+		configData, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		payload := make(map[string]any, len(configData)+1)
+		for key, item := range configData {
+			payload[key] = item
+		}
+		if !hasNonEmptyString(payload, "container_id") && !hasNonEmptyString(payload, "containerId") {
+			payload["container_id"] = containerID
+		}
+
+		config, err := decodeRuntimeConfigPayload(payload, decodeConfig)
+		if err != nil {
+			return RuntimeConfigSnapshot[TConfig]{}, err
+		}
+		configs = append(configs, config)
+	}
+
+	return RuntimeConfigSnapshot[TConfig]{
+		ContainerID: containerID,
+		Reason:      reason,
+		Configs:     configs,
+	}, nil
+}
+
+// FetchCoreRuntimeConfigSnapshot fetches the latest runtime configs from Core.
+func FetchCoreRuntimeConfigSnapshot[TConfig any](
+	ctx context.Context,
+	runtimeContext *RuntimeContext,
+	httpClient *http.Client,
+	coreBaseURL string,
+	decodeConfig func(map[string]any) (TConfig, error),
+	reason string,
+) (*RuntimeConfigSnapshot[TConfig], error) {
+	if runtimeContext == nil || runtimeContext.Auth == nil {
+		return nil, nil
+	}
+
+	containerID, internalToken := runtimeContext.Auth.Resolve("")
+	if strings.TrimSpace(containerID) == "" || strings.TrimSpace(internalToken) == "" {
+		return nil, nil
+	}
+
+	resolvedCoreBaseURL := ResolveCoreBaseURL(coreBaseURL)
+	if resolvedCoreBaseURL == "" {
+		resolvedCoreBaseURL = ResolveCoreBaseURL("http://127.0.0.1:31419")
+	}
+	if resolvedCoreBaseURL == "" {
+		return nil, nil
+	}
+
+	endpoint, err := url.Parse(resolvedCoreBaseURL + CoreRuntimeConfigFetchPath)
+	if err != nil {
+		return nil, err
+	}
+	query := endpoint.Query()
+	query.Set("container_id", containerID)
+	endpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	for key, values := range BuildRuntimeAuthHeaders(containerID, internalToken) {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
+	}
+
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return nil, fmt.Errorf("core runtime config fetch failed with HTTP %d", response.StatusCode)
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	snapshot, err := BuildRuntimeConfigSnapshotFromCoreRows(
+		rows,
+		containerID,
+		decodeConfig,
+		reason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
+}
+
+// RehydrateRuntimeConfigs applies the mounted snapshot first, then refreshes from Core.
+func RehydrateRuntimeConfigs[TConfig any](
+	ctx context.Context,
+	options RuntimeConfigRehydrateOptions[TConfig],
+) (RuntimeConfigRehydrateResult, error) {
+	result := RuntimeConfigRehydrateResult{}
+	if options.RuntimeContext == nil {
+		options.RuntimeContext = NewRuntimeContext()
+	}
+
+	snapshot, err := LoadRuntimeConfigSnapshot[TConfig](options.SnapshotPath)
+	if err != nil {
+		return result, err
+	}
+	if snapshot != nil {
+		result.SnapshotFound = true
+		if strings.TrimSpace(snapshot.Reason) == "" {
+			if strings.TrimSpace(options.SnapshotReason) != "" {
+				snapshot.Reason = options.SnapshotReason
+			} else {
+				snapshot.Reason = "startup_snapshot_rehydrate"
+			}
+		}
+		if options.ApplySnapshot != nil {
+			if err := options.ApplySnapshot(*snapshot); err != nil {
+				return result, err
+			}
+		}
+		result.SnapshotApplied = true
+		result.SnapshotConfigCount = len(snapshot.Configs)
+		result.SnapshotGeneration = snapshot.Generation
+	}
+
+	containerID, internalToken := options.RuntimeContext.Auth.Resolve("")
+	if strings.TrimSpace(containerID) == "" || strings.TrimSpace(internalToken) == "" {
+		result.MissingRuntimeAuth = true
+		return result, nil
+	}
+
+	result.CoreAttempted = true
+	coreSnapshot, err := FetchCoreRuntimeConfigSnapshot(
+		ctx,
+		options.RuntimeContext,
+		options.HTTPClient,
+		options.CoreBaseURL,
+		options.DecodeConfig,
+		options.CoreReason,
+	)
+	if err != nil {
+		result.CoreError = err.Error()
+		if options.RaiseCoreErrors {
+			return result, err
+		}
+		return result, nil
+	}
+	if coreSnapshot == nil {
+		return result, nil
+	}
+
+	if options.ApplySnapshot != nil {
+		if err := options.ApplySnapshot(*coreSnapshot); err != nil {
+			return result, err
+		}
+	}
+	result.CoreApplied = true
+	result.CoreConfigCount = len(coreSnapshot.Configs)
+	result.CoreGeneration = coreSnapshot.Generation
+	return result, nil
 }
 
 // ReconcileConfigIDs diffs incoming and active config id sets.
