@@ -16,6 +16,41 @@ type TelemetryClient struct {
 	timeout      time.Duration
 }
 
+// TelemetryReading is one validated native metric observation.
+type TelemetryReading struct {
+	Metric string
+	Value  any
+	Unit   string
+}
+
+// BuildTelemetryMaps validates readings and converts them to the Core wire shape.
+func BuildTelemetryMaps(readings []TelemetryReading) (map[string]any, map[string]any, error) {
+	metrics := map[string]any{}
+	units := map[string]any{}
+	for _, reading := range readings {
+		metric := strings.TrimSpace(reading.Metric)
+		if metric == "" {
+			return nil, nil, fmt.Errorf("telemetry reading metric cannot be empty")
+		}
+		if _, exists := metrics[metric]; exists {
+			return nil, nil, fmt.Errorf("duplicate telemetry metric: %s", metric)
+		}
+		switch reading.Value.(type) {
+		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string:
+		default:
+			return nil, nil, fmt.Errorf("telemetry reading %s has unsupported value type %T", metric, reading.Value)
+		}
+		metrics[metric] = reading.Value
+		if strings.TrimSpace(reading.Unit) != "" {
+			units[metric] = reading.Unit
+		}
+	}
+	if len(metrics) == 0 {
+		return nil, nil, fmt.Errorf("at least one telemetry reading is required")
+	}
+	return metrics, units, nil
+}
+
 // NewTelemetryClient creates a telemetry client for outbound Core calls.
 func NewTelemetryClient(processState *RuntimeProcessState, coreBaseURL string, timeout time.Duration) *TelemetryClient {
 	if processState == nil {
@@ -43,6 +78,9 @@ func (c *TelemetryClient) SendMetrics(authContext *RuntimeAuthContext, payload T
 
 	outbound := payload
 	outbound.ContainerID = resolvedContainerID
+	if strings.TrimSpace(outbound.Timestamp) == "" {
+		outbound.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 
 	body, err := json.Marshal(outbound)
 	if err != nil {
@@ -76,4 +114,19 @@ func (c *TelemetryClient) SendMetrics(authContext *RuntimeAuthContext, payload T
 		return classifyCoreDeliveryError("telemetry_delivery", telemetryURL, c.timeout, response, nil)
 	}
 	return nil
+}
+
+// SendDeviceReadings sends typed readings using one validated device identity.
+func (c *TelemetryClient) SendDeviceReadings(authContext *RuntimeAuthContext, device RuntimeIdentity, readings []TelemetryReading, timestamp string) error {
+	if strings.TrimSpace(device.ConfigID) == "" || strings.TrimSpace(device.DeviceID) == "" {
+		return RuntimeIdentityError{Missing: []string{"config_id", "device_id"}}
+	}
+	metrics, units, err := BuildTelemetryMaps(readings)
+	if err != nil {
+		return err
+	}
+	return c.SendMetrics(authContext, TelemetryPayload{
+		DeviceID: device.DeviceID, ConfigID: device.ConfigID, ContainerID: device.ContainerID,
+		IntegrationID: device.IntegrationID, Metrics: metrics, Units: units, Timestamp: timestamp,
+	})
 }

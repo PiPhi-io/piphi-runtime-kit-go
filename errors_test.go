@@ -67,7 +67,10 @@ func TestEventClientReturnsCoreServerError(t *testing.T) {
 	auth.Update("container-1", "secret-token")
 
 	err := client.SendEvent(auth, CoreEventPayload{
-		EventType:     "device.turned_on",
+		Type:          "device.turned_on",
+		EventID:       "event-1",
+		TS:            "2026-07-26T12:00:00Z",
+		Data:          map[string]any{},
 		IntegrationID: "tp-link-kasa",
 		ConfigID:      "plug-1",
 		ContainerID:   "container-1",

@@ -138,6 +138,7 @@ type RuntimeDiagnosticsResponse struct {
 // TelemetryPayload is the canonical runtime telemetry shape.
 type TelemetryPayload struct {
 	DeviceID      string         `json:"device_id"`
+	ConfigID      string         `json:"config_id"`
 	Metrics       map[string]any `json:"metrics"`
 	Units         map[string]any `json:"units,omitempty"`
 	ContainerID   string         `json:"container_id,omitempty"`
@@ -147,10 +148,13 @@ type TelemetryPayload struct {
 
 // CoreEventPayload is the event shape sent back to PiPhi Core.
 type CoreEventPayload struct {
-	EventType     string         `json:"event_type"`
-	Source        string         `json:"source,omitempty"`
+	EventID       string         `json:"event_id"`
+	Type          string         `json:"type"`
+	TS            string         `json:"ts"`
 	Severity      string         `json:"severity,omitempty"`
-	Payload       map[string]any `json:"payload,omitempty"`
+	Transport     string         `json:"transport,omitempty"`
+	Topic         string         `json:"topic,omitempty"`
+	Data          map[string]any `json:"data"`
 	ConfigID      string         `json:"config_id"`
 	ContainerID   string         `json:"container_id"`
 	IntegrationID string         `json:"integration_id"`

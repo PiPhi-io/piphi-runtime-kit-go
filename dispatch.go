@@ -1,5 +1,7 @@
 package runtimekit
 
+import "time"
+
 // ScheduleTelemetryDelivery dispatches one telemetry delivery goroutine.
 func ScheduleTelemetryDelivery(
 	processState *RuntimeProcessState,
@@ -7,6 +9,9 @@ func ScheduleTelemetryDelivery(
 	authContext *RuntimeAuthContext,
 	payload TelemetryPayload,
 ) {
+	if payload.Timestamp == "" {
+		payload.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	CreateTrackedTask(processState, func() {
 		_ = telemetryClient.SendMetrics(authContext, payload)
 	})
@@ -19,6 +24,7 @@ func ScheduleEventDelivery(
 	authContext *RuntimeAuthContext,
 	payload CoreEventPayload,
 ) {
+	payload = BuildCoreEventPayload(payload)
 	CreateTrackedTask(processState, func() {
 		_ = eventClient.SendEvent(authContext, payload)
 	})

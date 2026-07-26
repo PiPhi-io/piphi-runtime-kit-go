@@ -174,6 +174,12 @@ working state inside the runtime process.
 
 ### 5. Send telemetry and events
 
+Automation-ready runtimes should create a validated `RuntimeIdentity`, send
+typed telemetry through `SendDeviceReadings`, and reserve `SendDeviceEvent` for
+semantic occurrences such as button presses or alarms. Telemetry observations
+must carry Core's `config_id`; semantic events use the stable
+`event_id/type/ts/data` envelope so Core can deduplicate retries safely.
+
 You can call the clients directly:
 
 ```go

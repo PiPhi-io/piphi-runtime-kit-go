@@ -2,6 +2,8 @@ package runtimekit
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +13,24 @@ import (
 
 // BuildCoreEventPayload returns the standard Core-bound event payload.
 func BuildCoreEventPayload(values CoreEventPayload) CoreEventPayload {
+	if strings.TrimSpace(values.EventID) == "" {
+		bytes := make([]byte, 16)
+		if _, err := rand.Read(bytes); err == nil {
+			values.EventID = hex.EncodeToString(bytes)
+		}
+	}
+	if strings.TrimSpace(values.TS) == "" {
+		values.TS = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if strings.TrimSpace(values.Severity) == "" {
+		values.Severity = "info"
+	}
+	if strings.TrimSpace(values.Transport) == "" {
+		values.Transport = "rest"
+	}
+	if values.Data == nil {
+		values.Data = map[string]any{}
+	}
 	return values
 }
 
@@ -72,7 +92,7 @@ func (c *EventClient) SendEvent(authContext *RuntimeAuthContext, event CoreEvent
 		return fmt.Errorf("missing runtime auth context for event delivery")
 	}
 
-	outbound := event
+	outbound := BuildCoreEventPayload(event)
 	outbound.ContainerID = resolvedContainerID
 
 	body, err := json.Marshal(outbound)
@@ -107,4 +127,19 @@ func (c *EventClient) SendEvent(authContext *RuntimeAuthContext, event CoreEvent
 		return classifyCoreDeliveryError("event_delivery", eventsURL, c.timeout, response, nil)
 	}
 	return nil
+}
+
+// SendDeviceEvent sends a semantic occurrence with stable Core routing identity.
+func (c *EventClient) SendDeviceEvent(authContext *RuntimeAuthContext, device RuntimeIdentity, eventType string, data map[string]any, severity string, topic string, eventID string, ts string) error {
+	if err := device.RequireEventScope(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(device.ConfigID) == "" || strings.TrimSpace(device.DeviceID) == "" {
+		return RuntimeIdentityError{Missing: []string{"config_id", "device_id"}}
+	}
+	return c.SendEvent(authContext, CoreEventPayload{
+		EventID: eventID, Type: eventType, TS: ts, IntegrationID: device.IntegrationID,
+		ConfigID: device.ConfigID, ContainerID: device.ContainerID, DeviceID: device.DeviceID,
+		Severity: severity, Transport: "rest", Topic: topic, Data: data,
+	})
 }
