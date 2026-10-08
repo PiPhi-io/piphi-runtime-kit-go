@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
-	runtimekit "github.com/piphi-network/piphi-runtime-kit-go"
-	"github.com/piphi-network/piphi-runtime-kit-go/adapters"
+	runtimekit "github.com/PiPhi-io/piphi-runtime-kit-go"
+	"github.com/PiPhi-io/piphi-runtime-kit-go/adapters"
 )
 
 type demoConfig struct {

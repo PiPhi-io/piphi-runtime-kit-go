@@ -1,4 +1,4 @@
-module github.com/piphi-network/piphi-runtime-kit-go
+module github.com/PiPhi-io/piphi-runtime-kit-go
 
 go 1.25.0
 

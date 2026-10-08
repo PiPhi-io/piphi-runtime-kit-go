@@ -80,13 +80,13 @@ The SDK should make runtime plumbing easier, not take over the device logic.
 The module path is:
 
 ```text
-github.com/piphi-network/piphi-runtime-kit-go
+github.com/PiPhi-io/piphi-runtime-kit-go
 ```
 
 Add it to your integration:
 
 ```bash
-go get github.com/piphi-network/piphi-runtime-kit-go
+go get github.com/PiPhi-io/piphi-runtime-kit-go
 ```
 
 If you are working locally before publishing tags, you can use a `replace`

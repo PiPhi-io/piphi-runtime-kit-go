@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	runtimekit "github.com/piphi-network/piphi-runtime-kit-go"
+	runtimekit "github.com/PiPhi-io/piphi-runtime-kit-go"
 )
 
 // GetPayloadContainerID extracts a container id from a JSON-like payload map.
