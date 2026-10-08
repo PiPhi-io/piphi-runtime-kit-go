@@ -13,6 +13,7 @@ type RuntimeStarter[TEntry any, TState any, TEvent any] struct {
 	Registry        *RuntimeRegistry[TEntry, TState, TEvent]
 	Telemetry       *TelemetryClient
 	Events          *EventClient
+	State           *RuntimeStateService[TEntry, TState, TEvent]
 }
 
 // NewRuntimeStarter returns the recommended beginner-friendly runtime bundle.
@@ -31,14 +32,16 @@ func NewRuntimeStarter[TEntry any, TState any, TEvent any](
 		runtime.ProcessState.SetCoreBaseURL(coreBaseURL)
 	}
 
+	registry := NewRuntimeRegistry[TEntry, TState, TEvent](maxRecentEvents)
 	return &RuntimeStarter[TEntry, TState, TEvent]{
 		IntegrationID:   integrationID,
 		IntegrationName: integrationName,
 		Version:         version,
 		Runtime:         runtime,
-		Registry:        NewRuntimeRegistry[TEntry, TState, TEvent](maxRecentEvents),
+		Registry:        registry,
 		Telemetry:       NewTelemetryClient(runtime.ProcessState, coreBaseURL, 0),
 		Events:          NewEventClient(runtime.ProcessState, coreBaseURL, 0),
+		State:           NewRuntimeStateService(registry),
 	}
 }
 

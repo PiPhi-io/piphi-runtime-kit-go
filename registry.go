@@ -101,6 +101,14 @@ func (r *RuntimeRegistry[TEntry, TState, TEvent]) UpdateState(entryID string, st
 	return snapshot
 }
 
+// GetState returns one latest cached state snapshot.
+func (r *RuntimeRegistry[TEntry, TState, TEvent]) GetState(entryID string) (StateSnapshot[TState], bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	snapshot, ok := r.stateSnapshots[entryID]
+	return snapshot, ok
+}
+
 // AppendEvent stores one recent local runtime event.
 func (r *RuntimeRegistry[TEntry, TState, TEvent]) AppendEvent(event TEvent) TEvent {
 	r.mu.Lock()

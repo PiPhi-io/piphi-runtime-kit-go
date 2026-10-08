@@ -154,14 +154,27 @@ func handleDeconfigure(c *gin.Context) {
 }
 
 func handleState(c *gin.Context) {
-	c.JSON(http.StatusOK, map[string]any{
+	response, err := starter.State.Response(
+		c.Request.Context(),
+		c.Query("refresh") == "true",
+		c.Query("refresh_request_id"),
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	payload := map[string]any{
 		"summary": map[string]any{
 			"active_config_count": len(registry.IDs()),
 			"recent_event_count":  len(registry.RecentEvents()),
 		},
-		"entries":         registry.EntriesSnapshot(),
+		"entries":         response.Entries,
 		"state_snapshots": registry.StateSnapshots(),
-	})
+	}
+	if response.Refresh != nil {
+		payload["refresh"] = response.Refresh
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 func handleEventExample(c *gin.Context) {

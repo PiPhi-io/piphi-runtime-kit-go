@@ -527,3 +527,27 @@ If you are unsure where to start:
 4. use the registry for active runtime state
 5. send telemetry and events through the SDK
 6. compare your runtime to the example app
+# One state service, four small operations
+
+The starter owns the `/state` protocol so integrations only provide vendor logic:
+
+```go
+starter.State.Provide(func(ctx context.Context) error {
+    if err := device.Update(ctx); err != nil { return err }
+    starter.State.Publish(device.ID, normalize(device))
+    return nil
+}, "device_api")
+```
+
+Use `State.Publish` for polling or webhook updates and `State.Get` for cached
+state. Route code returns `State.Response`; the SDK handles refresh IDs, receipts,
+timeouts, and unsupported refreshes.
+
+```go
+payload, err := starter.State.Response(r.Context(), refresh, refreshRequestID)
+if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+writeJSON(w, http.StatusOK, payload)
+```
+
+Leave `Provide` unregistered for push-only integrations. The SDK returns an
+explicit `unsupported` receipt instead of pretending cached data was refreshed.

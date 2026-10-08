@@ -171,15 +171,28 @@ func handleDeconfigure(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-func handleState(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func handleState(w http.ResponseWriter, r *http.Request) {
+	response, err := starter.State.Response(
+		r.Context(),
+		r.URL.Query().Get("refresh") == "true",
+		r.URL.Query().Get("refresh_request_id"),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	payload := map[string]any{
 		"summary": map[string]any{
 			"active_config_count": len(registry.IDs()),
 			"recent_event_count":  len(registry.RecentEvents()),
 		},
-		"entries":         registry.EntriesSnapshot(),
+		"entries":         response.Entries,
 		"state_snapshots": registry.StateSnapshots(),
-	})
+	}
+	if response.Refresh != nil {
+		payload["refresh"] = response.Refresh
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func handleEventExample(w http.ResponseWriter, _ *http.Request) {
