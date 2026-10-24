@@ -1,5 +1,21 @@
 # piphi-runtime-kit-go
 
+## Onboarding declarations
+
+Runtime discovery and homeowner onboarding are separate contracts. Use
+`OnboardingDeclaration` to validate a manifest's explicit first-use mode:
+
+```go
+declaration := runtimekit.OnboardingDeclaration{Mode: runtimekit.OnboardingModeManual}
+if err := declaration.Validate(); err != nil {
+	return err
+}
+```
+
+The supported modes are `manual`, `discovery`, `account`, `service`, and
+`none`. Runtime strategies such as `passive` or `mdns` do not belong in this
+declaration.
+
 Small Go helpers for building PiPhi runtime integrations.
 
 This package is intentionally thin. It removes repetitive PiPhi runtime
