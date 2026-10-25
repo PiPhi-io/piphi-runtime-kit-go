@@ -1,5 +1,9 @@
 # piphi-runtime-kit-go
 
+## Managed listener port
+
+Core assigns the primary listener through `PORT`. Use `RuntimePort(defaultPort)` when starting the server. The default is only for unmanaged local development; an invalid managed assignment returns an error rather than risking a collision.
+
 ## Onboarding declarations
 
 Runtime discovery and homeowner onboarding are separate contracts. Use
